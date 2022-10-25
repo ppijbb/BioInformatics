@@ -1,0 +1,265 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+<center>
+# Expression Profiling by high throughput sequencing
+</center>
+
+
+Differential expressed analysis was performed on brain gene expression profiling studies of suicide and depression using RNA-seq.
+
+## 1. Preprocessing
+
+The Sequence Read Archives (SRA) files were downloaded using NCBI’s SRA Toolkit and converted and split to two paired FASTQ files using fastq-dump. Before mapping FASTQ files to the human genome, genomeGenerate option generated the human genome index based on the Genome Reference Consortium human reference genome (build 38). Spliced Transcripts Alignment to a Reference (STAR), an ultrafast universal RNA-seq aligner, was then used to align paired-end reads to the human genome using its default parameters. The annotations used in STAR was Homo_sapiens.GRCh38.104.gtf. The mapped sequencing reads were then assigned to genomic features using featureCounts, a program part of the package Subread.Due to large datasets, alignment and mapping were performed on the server. 
+
+```{r eval = FALSE, warning=FALSE}
+# Download SRR files
+prefetch SRR5831952 SRR5831962 SRR5831964 SRR5831965 SRR5831971 SRR5831985
+SRR5831991 SRR5831995 SRR5831997 SRR5831998 SRR5832002
+
+# SRR is converted and split to two paired fastq  files
+fastq-dump --split-files SRR5831952
+fastq-dump --split-files SRR5831962
+fastq-dump --split-files SRR5831964
+fastq-dump --split-files SRR5831965
+fastq-dump --split-files SRR5831971
+fastq-dump --split-files SRR5831985
+fastq-dump --split-files SRR5831991
+fastq-dump --split-files SRR5831995
+fastq-dump --split-files SRR5831997
+fastq-dump --split-files SRR5831998
+fastq-dump --split-files SRR5832002
+
+# Generate STAR human genome
+STAR --runMode genomeGenerate --genomeDir human_index --runThreadN 8 --genomeFastaFiles 
+Homo_sapiens.GRCh38.dna.primary_assembly.fa
+
+# STAR mapping (two paired library)
+STAR --genomeDir human_index --runThreadN 8 --readFilesIn SRR5831952_1.fastq SRR5831952_2.fastq
+--outFileNamePrefix SRR5831952_ --sjdbGTFfile Homo_sapiens.GRCh38.104.gtf
+
+STAR --genomeDir human_index --runThreadN 8 --readFilesIn SRR5831962_1.fastq SRR5831962_2.fastq
+--outFileNamePrefix SRR5831962_ --sjdbGTFfile Homo_sapiens.GRCh38.104.gtf
+
+STAR --genomeDir human_index --runThreadN 8 --readFilesIn SRR5831964_1.fastq SRR5831964_2.fastq
+--outFileNamePrefix SRR5831964_ --sjdbGTFfile Homo_sapiens.GRCh38.104.gtf
+
+STAR --genomeDir human_index --runThreadN 8 --readFilesIn SRR5831965_1.fastq SRR5831965_2.fastq
+--outFileNamePrefix SRR5831965_ --sjdbGTFfile Homo_sapiens.GRCh38.104.gtf
+
+STAR --genomeDir human_index --runThreadN 8 --readFilesIn SRR5831971_1.fastq SRR5831971_2.fastq
+--outFileNamePrefix SRR5831971_ --sjdbGTFfile Homo_sapiens.GRCh38.104.gtf
+
+STAR --genomeDir human_index --runThreadN 8 --readFilesIn SRR5831985_1.fastq SRR5831985_2.fastq
+--outFileNamePrefix SRR5831985_ --sjdbGTFfile Homo_sapiens.GRCh38.104.gtf
+
+STAR --genomeDir human_index --runThreadN 8 --readFilesIn SRR5831991_1.fastq SRR5831991_2.fastq
+--outFileNamePrefix SRR5831991_ --sjdbGTFfile Homo_sapiens.GRCh38.104.gtf
+
+STAR --genomeDir human_index --runThreadN 8 --readFilesIn SRR5831995_1.fastq SRR5831995_2.fastq
+--outFileNamePrefix SRR5831995_ --sjdbGTFfile Homo_sapiens.GRCh38.104.gtf
+
+STAR --genomeDir human_index --runThreadN 8 --readFilesIn SRR5831997_1.fastq SRR5831997_2.fastq
+--outFileNamePrefix SRR5831997_ --sjdbGTFfile Homo_sapiens.GRCh38.104.gtf
+
+STAR --genomeDir human_index --runThreadN 8 --readFilesIn SRR5831998_1.fastq SRR5831998_2.fastq
+--outFileNamePrefix SRR5831998_ --sjdbGTFfile Homo_sapiens.GRCh38.104.gtf
+
+STAR --genomeDir human_index --runThreadN 8 --readFilesIn SRR5832002_1.fastq SRR5832002_2.fastq
+--outFileNamePrefix SRR5832002_ --sjdbGTFfile Homo_sapiens.GRCh38.104.gtf
+
+# Feature counts
+featureCounts -T 8 -a Homo_sapiens.GRCh38.104.gtf -o SRR5831952_FC SRR5831952_Aligned.out.sam
+featureCounts -T 8 -a Homo_sapiens.GRCh38.104.gtf -o SRR5831962_FC SRR5831962_Aligned.out.sam
+featureCounts -T 8 -a Homo_sapiens.GRCh38.104.gtf -o SRR5831964_FC SRR5831964_Aligned.out.sam
+featureCounts -T 8 -a Homo_sapiens.GRCh38.104.gtf -o SRR5831965_FC SRR5831965_Aligned.out.sam
+featureCounts -T 8 -a Homo_sapiens.GRCh38.104.gtf -o SRR5831971_FC SRR5831971_Aligned.out.sam
+featureCounts -T 8 -a Homo_sapiens.GRCh38.104.gtf -o SRR5831985_FC SRR5831985_Aligned.out.sam
+featureCounts -T 8 -a Homo_sapiens.GRCh38.104.gtf -o SRR5831991_FC SRR5831991_Aligned.out.sam
+featureCounts -T 8 -a Homo_sapiens.GRCh38.104.gtf -o SRR5831995_FC SRR5831995_Aligned.out.sam
+featureCounts -T 8 -a Homo_sapiens.GRCh38.104.gtf -o SRR5831997_FC SRR5831997_Aligned.out.sam
+featureCounts -T 8 -a Homo_sapiens.GRCh38.104.gtf -o SRR5831998_FC SRR5831998_Aligned.out.sam
+featureCounts -T 8 -a Homo_sapiens.GRCh38.104.gtf -o SRR5832002_FC SRR5832002_Aligned.out.sam
+```
+
+### 1.1 Quality control
+
+An overview of the data quality was obtained using multiqc. The summary statistics are listed below:
+
+<center>
+![](/Users/hayoungkim/MDD/RNAseq_Quality/Table_feature.png)
+</center>
+
+% Assigned: the results from featureCounts,
+
+% Aligned: the results from STAR,
+
+%Dups and %GC: the quality of the original FASTQ files
+
+Based on the alignment scores of STAR, the amount of uniquely mapped reads ranged from 69.0% to 86.5%, having an average of 82.3%.
+
+Below are plots which show the quality in more detail.
+
+<center>
+![](/Users/hayoungkim/MDD/RNAseq_Quality/fastqc_per_base_sequence_quality_plot.png)
+</center>
+
+<center>
+![](/Users/hayoungkim/MDD/RNAseq_Quality/fastqc_sequence_counts_plot.png)
+</center>
+
+<center>
+![](/Users/hayoungkim/MDD/RNAseq_Quality/star_alignment_plot.png)
+</center>
+
+<center>
+![](/Users/hayoungkim/MDD/RNAseq_Quality/featureCounts_assignment_plot.png)
+</center>
+
+### 1.2. Loading necessary packages
+
+```{r message=FALSE, warning=FALSE}
+library(edgeR)
+library(limma)
+library("org.Hs.eg.db")
+library(kableExtra)
+```
+
+
+### 1.3. Load featureCounts data
+
+```{r}
+# Featurecount files
+fcPath = "/Users/hayoungkim/MDD/RNAseq/featureCounts/"
+
+fcFiles = list.files(fcPath, pattern="FC$") # separate from summary file
+
+file_tables = lapply(paste0(fcPath, fcFiles), read.table, header=TRUE, sep="\t")
+
+# Merge all count files into one table
+countTable = do.call(cbind, lapply(1:length(file_tables),
+                                   function(k) file_tables[[k]][,7]))
+
+annot_table = file_tables[[1]][,1:6]
+
+colnames(countTable) = substr(fcFiles, 1, 10)
+```
+
+### 1.4.  Read in metadata
+```{r}
+sraInfo = read.csv(
+  "/Users/hayoungkim/MDD/RNAseq/featureCounts/SraRunInfo.csv")
+
+# Separate count table from annotation
+countTable = countTable[, sraInfo$Run] # Match data with sraInfo
+rownames(countTable) = annot_table[,1]
+
+# Add values in the column of affection status
+sraInfo$Affection_Status <- c("normal","affected","affected","affected","affected","normal",
+                              "affected","normal","affected","affected","normal")
+```
+
+## 2. Differential Expression Analysis
+
+For the resulted read counts, the differential expression analysis between CON and MDD-S was implemented using edgeR. 
+
+```{r}
+# Create DGEList object
+y = DGEList(counts=countTable, group=sraInfo$Affection_Status)
+
+# Filter out low counts
+keep = filterByExpr(y)
+y = y[keep, , keep.lib.sizes=FALSE]
+
+summary(keep)
+
+# Normalization
+y = calcNormFactors(y)
+
+table(sraInfo$Affection_Status)
+```
+
+### 2.1. Data exploration
+
+```{r}
+plotMDS(y, col=as.double(as.factor(sraInfo$Affection_Status)))
+```
+
+Expression profiles were grouped by diagnosis, either non-psychiatric controls (CON) or DSM-IV major depressive disorder suicides (MDD-S), except for two samples on the right bottom of the plot (SRR5831998 and SRR1965).
+
+```{r}
+# Factor the status and have normal as reference
+status = factor(sraInfo$Affection_Status)
+status = relevel(status, "normal")
+```
+
+### 2.2. Fit the model
+
+```{r}
+design = model.matrix(~status)
+```
+
+### 2.3. Estimating dispersion
+
+```{r}
+y = estimateDisp(y, design)
+plotBCV(y)
+```
+
+### 2.4. Testing for differential expressed genes
+
+```{r}
+fit = glmQLFit(y, design)
+test = glmQLFTest(fit)
+ALLGenes = topTags(test, n=nrow(y))
+```
+
+```{r}
+#SigGenes = topTags(test, n=nrow(y), p.value=0.05)
+```
+
+Due to the lack of significant genes having adjsuted p-values less than 0.05, the top ten hits with unadjusted p-values from ALLGenes were identified.
+
+```{r}
+plotMD(test, hl.cex=0.5)
+```
+
+
+```{r}
+# Map ENSEMBL ID to Entrez, symbol, and genename
+gene_symbols = select(org.Hs.eg.db, keys=rownames(ALLGenes),
+                      columns=c("ENTREZID", "SYMBOL", "GENENAME"), keytype='ENSEMBL')
+gene_symbols = gene_symbols[!duplicated(gene_symbols$ENSEMBL),]
+```
+
+```{r}
+# Add info to ALLGenes, and remove genes without symbol
+ALLGenes$table$symbol = gene_symbols$SYMBOL
+ALLGenes$table$genename = gene_symbols$GENENAME
+ALLGenes = ALLGenes[!is.na(gene_symbols$SYMBOL),]
+```
+
+```{r}
+# Display first ten results
+dt <- ALLGenes$table[1:10, c("symbol", "genename", "logFC", "FDR")]
+rownames(dt) <- NULL
+#dt
+```
+
+```{r}
+dt %>%
+  kbl(caption = "Table 3. The top ten genes having the lowest unadjusted p-value,
+      all having FDR value of 0.99.") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+```
+
+```{r}
+plotMD(test, hl.cex=0.5)
+```
+
+
+
+
+

@@ -1,0 +1,189 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+<center>
+# Expression Profiling by array (Prefrontal cortex)
+</center>
+
+
+In this analysis, differentially expressed genes were identified from the brain prefrontal cortex samples of patients diagnosed with MDD compared to healthy controls. 
+
+## 1. Preprocessing
+
+### 1.1. Loading necessary packages
+
+```{r message=FALSE, warning=FALSE}
+library(GEOquery)
+library(arrayQualityMetrics)
+library(limma)
+library(hgu133plus2.db)
+library(knitr)
+library(kableExtra)
+```
+
+### 1.2. Load data
+
+```{r message=FALSE, warning=FALSE}
+gse_MDD = getGEO("GSE54568")
+gse_MDD = gse_MDD[[1]]
+```
+
+```{r}
+pData(gse_MDD)$data_processing[1]
+```
+
+The data provided were already log2- transformed and GC-RMA-normalized.
+
+```{r message=FALSE}
+# Extract phenotype data as a table for visualization
+table_MDD = pData(gse_MDD)
+```
+
+### 1.3. Filtering
+
+
+```{r message=FALSE}
+# Entire list of column names
+colnames(pData(gse_MDD))
+```
+
+```{r}
+# Columns that this analysis is interested
+colnames(pData(gse_MDD))[36:37]
+
+# Replace :ch1 and space of column names
+colnames(pData(gse_MDD)) = sub(":ch1","",colnames(pData(gse_MDD)))
+colnames(pData(gse_MDD)) = sub(" ","",colnames(pData(gse_MDD)))
+```
+
+```{r}
+# Entire list of column names after replacement
+colnames(pData(gse_MDD))
+```
+
+```{r message=FALSE}
+# Get samples without anxiety
+noanxiety_gse = gse_MDD[, gse_MDD$anxiety == "no"]
+
+# Extract phenotype data of filtered dataset as a table for visualization
+table_noanxiety_gse = pData(noanxiety_gse)
+
+# Factor the subjectgroup and relevel it so the control is the reference
+noanxiety_gse$subjectgroup = factor(noanxiety_gse$subjectgroup)
+noanxiety_gse$subjectgroup = relevel(noanxiety_gse$subjectgroup, "CNTL; healthy control")
+```
+
+### 1.4. Match probes to genes
+
+The gene information of the probes were identified using the annotation package *hgu133plus2.db* appropriate for the Affymetrix Human Genome U133 Plus 2.0 Array.
+
+```{r}
+genes_id <- AnnotationDbi::select(hgu133plus2.db,
+                    keys = rownames(noanxiety_gse),
+                    columns=c("ENTREZID", "SYMBOL", "GENENAME"),
+                    keytype="PROBEID")
+
+# Remove duplicated IDs
+genes_id = genes_id[-which(duplicated(genes_id$PROBEID)),]
+
+# Assign ENTREZ ID, gene symbol and name to featureData
+fData(noanxiety_gse)$symbol = genes_id$SYMBOL
+fData(noanxiety_gse)$Entrez_Gene_ID = genes_id$ENTREZID
+fData(noanxiety_gse)$gene_name = genes_id$GENENAME
+
+# Filter out probes which do not match to a gene
+gse_probes = noanxiety_gse[!is.na(fData(noanxiety_gse)$symbol),]
+```
+
+### 1.5. Quality Control
+
+```{r warning=FALSE}
+arrayQualityMetrics(expressionset = gse_probes, outdir="/Users/hayoungkim/MDD/210720_QualityCheck", force=TRUE)
+```
+
+<center>
+![](/Users/hayoungkim/MDD/210720_QualityCheck/dens.png){width=250px}
+</center>
+
+The density plots of the data show that all arrays follow a similar distribution even though there are large number of arrays.
+
+<center>
+![](/Users/hayoungkim/MDD/210720_QualityCheck/msd.png){width=300px}
+</center>
+
+<center>
+![](/Users/hayoungkim/MDD/210720_QualityCheck/ma.png){width=500px}
+</center>
+
+According to a density plot of the standard deviation of the intensities across arrays on the y-axis versus the rank of their mean on the x-axis and MA plots, the array quality seems good.
+
+A full overview of the output can be found in the file "index.html".
+
+### 1.6. Data exploration
+
+```{r}
+table(gse_probes$subjectgroup)
+```
+
+
+```{r}
+# Red triangle = MDD, black circle = control
+plotMDS(gse_probes, pch=as.double(gse_probes$subjectgroup),
+        col=sapply(gse_probes$subjectgroup,
+                   function(k) ifelse(k=="CASE; major depressive disorder (MDD) patient",
+                                      "red", "black")))
+```
+
+## 2. Differential analysis
+
+### 2.1. Design the model
+
+The model used age, batch, and gender as covariates in addition to the subject group.
+
+```{r}
+design = model.matrix(~as.numeric(age)+batch+gender+subjectgroup, data=pData(gse_probes))
+fit = lmFit(gse_probes, design)
+fit = eBayes(fit)
+```
+
+### 2.2. Identifying significant probes
+
+```{r}
+AllProbes = topTable(fit, coef="subjectgroupCASE; major depressive disorder (MDD) patient",
+                     number=nrow(fit), sort.by="none")
+sigProbes = topTable(fit, coef="subjectgroupCASE; major depressive disorder (MDD) patient",
+                     number=nrow(fit), p.value = 0.05)
+nrow(sigProbes)
+```
+
+### 2.3. The top ten differentially expressed genes with the lowest p-values adjusted by BH correction
+
+```{r}
+dt <- sigProbes[, c("symbol", "gene_name", "adj.P.Val", "logFC")][1:10,]
+rownames(dt) <- NULL
+
+dt %>%
+  kbl(caption = "Table 1. The top ten differentially expressed genes
+      with the lowest p-values after BH correction.") %>%
+  kable_classic(full_width = F, html_font = "Cambria", position = "left")
+```
+
+### 2.4. Writing all significant genes to a file
+
+```{r}
+write.table(sigProbes[, c("symbol", "gene_name", "adj.P.Val", "logFC")],
+file="MDD_sigProbes.txt", sep="\t", row.names=FALSE, col.names=TRUE, quote=FALSE)
+```
+
+### 2.5. MA and volcano plot
+
+```{r}
+limma::plotMA(fit, status=AllProbes$adj.P.Val < 0.05, hl.cex=0.5)
+```
+
+```{r}
+volcanoplot(fit, coef=ncol(design), col=as.factor(AllProbes$adj.P.Val < 0.05), style="p-value")
+```
+

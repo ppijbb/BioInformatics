@@ -1,0 +1,327 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+<center>
+# Methylation Profiling by array
+</center>
+
+In this analysis, the methylated DNA regions of twin pairs who differently diagnosed as healthy control and depression. The samples are from white blood cells.
+
+## 1. Preprocessing
+
+### 1.1. Loading necessary packages
+
+```{r message=FALSE, warning=FALSE}
+library(magrittr)
+library(GEOquery)
+library(arrayQualityMetrics)
+library(limma)
+library(dplyr)
+library(GenomicRanges)
+library(IRanges)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(org.Hs.eg.db)
+library(kableExtra)
+library(knitr)
+```
+
+### 1.2. Load metadata
+
+```{r message=FALSE, warning=FALSE}
+gse_methyl = getGEO("GSE37579")
+gse_methyl = gse_methyl[[1]]
+```
+
+```{r}
+pData(gse_methyl)$data_processing[1]
+```
+
+The preprocessed data provided in NCBI were already background corrected, normalized, and the signal intensities were extracted using package limma, however, this preprocessed data did not have good quality.
+
+```{r message=FALSE, warning=FALSE}
+arrayQualityMetrics(expressionset = gse_methyl, outdir="/Users/hayoungkim/MDD/210823_QualityCheck", force=TRUE)
+```
+
+
+![](/Users/hayoungkim/MDD/210823_QualityCheck/msd.png){width=300px}
+
+
+
+![](/Users/hayoungkim/MDD/210823_QualityCheck/ma.png)
+
+
+According to a density plot of the standard deviation of the intensities across arrays on the y-axis versus the rank of their mean on the x-axis and MA plots, the array quality seems bad.
+
+### 1.3. Filtering
+
+The dataset contained 304 samples which are independently sampled from white blood cells of monozygotic twins discordant for depression (n=200), pre-frontal cortex (n=71), and germline samples (n=33). In this analysis, all cell types were filtered out except white blood cells. Consequently, 143 MDD and 145 controls were analyzed, allowing the analysis to only focus on patients having disease status of healthy control or depression.
+
+```{r message=FALSE, warning=FALSE}
+# Entire list of column names
+colnames(pData(gse_methyl))
+
+# Replace ch1 and space
+colnames(pData(gse_methyl)) = sub(":ch1","",colnames(pData(gse_methyl)))
+colnames(pData(gse_methyl)) = sub(" ","",colnames(pData(gse_methyl)))
+
+# Entire list of column names after replacement
+colnames(pData(gse_methyl))
+
+# Extract phenotype data as a table for visualization
+table_methyl = pData(gse_methyl)
+
+# The number of samples diagnosed as MDD and healthy controls.
+num_control = pData(gse_methyl[, grep("control", gse_methyl$diseasestatus)])
+num_depression = pData(gse_methyl[, grep("depression", gse_methyl$diseasestatus)])
+
+# Filter cell type only to have white blood cells
+filtered_methyl = gse_methyl[, grep("white blood cells", gse_methyl$celltype)]
+
+# Filter out 'depression with psychosis' and 'bipolar' diseasestatus
+filtered_methyl = filtered_methyl[, filtered_methyl$diseasestatus != "depression with psychosis"]
+filtered_methyl = filtered_methyl[, filtered_methyl$diseasestatus != "bipolar"]
+
+# Factor diseasestatus
+filtered_methyl$diseasestatus = factor(filtered_methyl$diseasestatus)
+
+# Extract phenotype data of filtered dataset as a table for visualization
+table_filtered = pData(filtered_methyl)
+```
+
+### 1.4. Read in raw data
+
+Genepix were used scan the arrays.
+
+```{r message=FALSE, warning=FALSE, results='hide'}
+files = basename(as.character(filtered_methyl$supplementary_file))
+RG = read.maimages(paste0("/Users/hayoungkim/MDD/GSE37579_RAW/", files), source="genepix")
+#Change names for the further analysis
+colnames(RG) = substr(basename(colnames(RG)), 1, 9)
+```
+
+
+### 1.5. Quality control
+
+```{r}
+# Boxplots of background intensity
+par(mfrow=c(1,2))
+boxplot(data.frame(log2(RG$Gb)), main="Green background")
+boxplot(data.frame(log2(RG$Rb)), main="Red background")
+```
+
+Green background stands for the reference (background) intensity and red background stands for the intensity of the samples.
+
+```{r}
+# Imageplot3by2 generates the spacial background intensity plots
+imageplot3by2(RG, path = "/Users/hayoungkim/MDD/GSE37579_methyl")
+```
+
+![](/Users/hayoungkim/MDD/GSE37579_methyl/image-Gb-97-102.png){width=300px}
+
+
+We can already see from the boxplots that the background intensity is rather high compared to the enriched
+samples. This is further corroborated by the spatial plots, which show dark patches and heterogenity in
+several arrays. Since this indicates poor quality of the arrays overall, we will use the array quality as weights
+in the model instead of removing them.
+
+
+### 1.6. Normalization
+
+#### 1.6.1. Normalization within arrays
+
+```{r message=FALSE, warning=FALSE, results='hide'}
+# Normalize within arrays
+RG = backgroundCorrect(RG, method="normexp", offset=50)
+```
+
+```{r}
+MA = normalizeWithinArrays(RG, method="loess")
+```
+
+#### 1.6.1. Normalization within arrays
+
+```{r}
+# Normalize between arrays
+MA_norm = normalizeBetweenArrays(MA, method="Aquantile")
+```
+
+### 1.7. Comparing densities before and after each step
+
+```{r}
+plotDensities(RG, main='Background corrected')
+```
+
+```{r}
+plotDensities(MA, main='Normalized within arrays')
+```
+
+```{r}
+plotDensities(MA_norm, main='Normalized between arrays')
+```
+
+```{r}
+feature_methyl = fData(filtered_methyl)
+```
+
+### 1.8. Filtering probes
+
+Probes that do not map to a particular point in the genome. There were 8448 probes before filtering.
+
+```{r}
+# Check order of metadata and normalized data
+all(filtered_methyl$geo_accession == colnames(MA))
+```
+
+```{r}
+featureMA = fData(filtered_methyl)
+
+normgenes = MA_norm$genes
+
+# Get probes that match to in metadata
+MA_filtered = MA_norm[MA_norm$genes$ID %in% fData(filtered_methyl)$ID,]
+
+# Add columns from metadata
+MA_filtered$genes = inner_join(MA_filtered$genes, fData(filtered_methyl), by = c("ID"="ID"))
+
+genes = MA_filtered$genes
+
+# Not mapping to particular point in genome
+final_MA = MA_filtered[MA_filtered$genes$SPOT_ID != "UNKNOWN",]
+```
+
+8448 probes are filtered down resulting 8174 probes.
+
+
+### 1.9. Quality control (open “index.html” file for a full overview of the output)
+
+```{r message=FALSE, warning=FALSE}
+arrayQualityMetrics(final_MA, outdir="/Users/hayoungkim/MDD/MDDmethyl_final_MA", force=TRUE)
+```
+
+## 2. Differential analysis
+
+Limma package implemented differential expression analysis using twin pairs as a covariate in the model in addition to disease status and adding weights for each array quality. 
+
+### 2.1. Fit the model
+
+```{r}
+# Weights to adjust for poorer quality arrays
+arrayw = arrayWeights(final_MA)
+barplot(arrayw, xlab="Array", ylab="Weight", las=2)
+```
+
+```{r}
+# Fit the model
+design = model.matrix(~twinpair+diseasestatus, data=pData(filtered_methyl))
+fit = lmFit(final_MA, design, weights=arrayw)
+fit = eBayes(fit)
+sigProbes = topTable(fit, coef="diseasestatusdepression", number=nrow(final_MA), p.value = 0.05)
+nrow(sigProbes)
+```
+
+### 2.2. Converting probes to genes
+
+There were no significant probes at the 0.05 FDR level, however, the probes could be matched to genes using GenomicRanges. First, a GRanges object was constructed based on the chromosome start-end position provided with the probe. The pvalue and ID of the probes were also added as metadata in the GRanges object.
+
+```{r}
+sigProbes = topTable(fit, coef="diseasestatusdepression", number=nrow(final_MA))
+
+# Filter rows having NA in Genome.Location
+sigProbes = filter(sigProbes, Genome.Location != "")
+
+# Split the string from probe metadata (it is in format chr:start-end)
+spots = strsplit(sigProbes$Genome.Location, ":")
+ranges = unlist(sapply(1:length(spots), function(k) strsplit(spots[[k]][2], "-")))
+start = ranges[seq_along(ranges) %% 2 == 1] # odd elements
+end = ranges[seq_along(ranges) %% 2 == 0] # even elements
+
+# Create Granges and add pvalue as metadata
+sigRanges = GRanges(seqnames=Rle(sapply(1:length(spots), function(k) spots[[k]][1])),
+                    ranges=IRanges(start=as.numeric(start), end=as.numeric(end)),
+                    pval=sigProbes$P.Value,
+                    name=sigProbes$ID)
+```
+
+The annotation package *TxDb.Hsapiens.UCSC.hg38.knownGene* were used for the annotation.
+
+```{r message=FALSE}
+# Get human gene intervals and add metadata column
+knownGenes38 = genes(TxDb.Hsapiens.UCSC.hg38.knownGene)
+mcols(knownGenes38)[, "pval"] = NA
+mcols(knownGenes38)[, "name"] = NA
+```
+
+Mapping 8174 probes used in the analysis to the annotated human genome returned 3224 unique genes. 
+
+### 2.3. Test for overlaps between the two sets
+
+```{r}
+# Test for overlaps between the two
+test = findOverlaps(sigRanges, knownGenes38)
+```
+
+If the probes map to the same gene, only the probe with the lower p-value are retained.
+
+```{r}
+# Go through each hit
+for (i in 1:length(test)){
+sH = subjectHits(test[i])
+qH = queryHits(test[i])
+
+# Add p-value in case of NA OR keep lowest p-value
+if (is.na(mcols(knownGenes38)[sH,"pval"]) ||
+mcols(knownGenes38)[sH,"pval"] > mcols(sigRanges)[qH, "pval"]){
+mcols(knownGenes38)[sH,"pval"] = mcols(sigRanges)[qH, "pval"]
+mcols(knownGenes38)[sH,"name"] = mcols(sigRanges)[qH, "name"]
+}
+}
+
+geneSubset = subsetByOverlaps(knownGenes38,sigRanges,ignore.strand=TRUE)
+```
+
+### 2.4. Map gene symbols of the overlapping subset to the entrez id
+
+```{r}
+# Map to entrez id
+entrez_ids = geneSubset$gene_id
+gene_symbols = select(org.Hs.eg.db, keys=entrez_ids, columns=c("SYMBOL", "GENENAME"))
+
+# Sort by p-value
+gene_symbols = cbind(gene_symbols, geneSubset$pval, geneSubset$name)
+colnames(gene_symbols)[4:5] = c("pval", "name")
+gene_symbols = gene_symbols[order(gene_symbols$pval),]
+
+# Remove duplicated gene names
+duplicated_probes = as.character(gene_symbols$name[duplicated(gene_symbols$name)])
+final_genes = gene_symbols[!(as.character(gene_symbols$name) %in% duplicated_probes),]
+sigProbes_new = sigProbes[sigProbes$ID %in% final_genes$name,]
+```
+
+276 duplicated probes were mapped to the multiple genes and 219 genes associated with them were filtered out, resulting in 2729 genes.
+The differential expression analysis on these unique genes also did not return any significant genes, however, the top ten hits of the analysis are listed below with log FC and p-value before BH correction.
+
+### 2.5. Explore the resulted top genes
+
+```{r}
+dt <- cbind(gene_symbols[1:10,2:3], sigProbes_new[1:10, c("logFC", "P.Value")])
+rownames(dt) <- NULL
+#dt
+```
+
+```{r}
+dt %>%
+  kbl(caption = "Table 2. The top ten genes having the lowest unadjusted p-value") %>%
+  kable_classic(full_width = F, html_font = "Cambria", position = "left")
+```
+
+### 2.6. MA and volcano plot
+
+```{r}
+limma::plotMA(fit, status=sigProbes$adj.P.Val < 0.05, hl.cex=0.5)
+```
+
+```{r}
+volcanoplot(fit, coef=ncol(design), col=as.factor(sigProbes$adj.P.Val < 0.05), style="p-value")
+```
